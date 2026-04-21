@@ -1,0 +1,83 @@
+name: Skins Archive Monitor
+
+on:
+  schedule:
+    # Check every 5 minutes (GitHub may delay by a few minutes under load)
+    - cron: '*/5 * * * *'
+    # Weekly heartbeat: Monday 09:00 UTC — confirms the monitor is alive
+    - cron: '0 9 * * 1'
+  workflow_dispatch: {}  # Allows manual trigger from Actions tab
+
+permissions:
+  contents: write  # Needed to commit the updated state.json
+
+concurrency:
+  group: skins-monitor
+  cancel-in-progress: false  # Queue runs instead of cancelling mid-scrape
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-1.48.0
+
+      - name: Install Playwright Chromium
+        run: |
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" != "true" ]; then
+            python -m playwright install chromium --with-deps
+          else
+            python -m playwright install-deps chromium
+          fi
+
+      - name: Run monitor
+        env:
+          SKINS_EMAIL: ${{ secrets.SKINS_EMAIL }}
+          SKINS_PASSWORD: ${{ secrets.SKINS_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          HEARTBEAT: ${{ github.event.schedule == '0 9 * * 1' && '1' || '0' }}
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+        run: python monitor.py
+
+      - name: Upload debug artifact on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-${{ github.run_id }}
+          path: debug/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Commit updated state
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state.json
+          if git diff --staged --quiet; then
+            echo "No state changes to commit."
+          else
+            git commit -m "Update state [skip ci]"
+            # Rebase in case another run pushed between our pull and push
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            git push
+          fi
