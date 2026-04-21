@@ -19,10 +19,13 @@ from playwright.async_api import TimeoutError as PlaywrightTimeout
 from playwright.async_api import async_playwright
 
 # --- Config from environment ---
-SKINS_EMAIL = os.environ["SKINS_EMAIL"]
-SKINS_PASSWORD = os.environ["SKINS_PASSWORD"]
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+# .strip() on every credential: trailing whitespace/newlines from copy-paste
+# into GitHub Secrets is a common silent failure mode that results in the site
+# rejecting the value as malformed.
+SKINS_EMAIL = os.environ["SKINS_EMAIL"].strip()
+SKINS_PASSWORD = os.environ["SKINS_PASSWORD"].strip()
+TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"].strip()
+TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"].strip()
 HEARTBEAT = os.environ.get("HEARTBEAT", "0") == "1"
 MANUAL = os.environ.get("MANUAL", "0") == "1"
 
@@ -95,8 +98,8 @@ async def login(page) -> None:
     try:
         await page.locator(password_field).wait_for(state="visible", timeout=15000)
     except PlaywrightTimeout:
-        # If password never appears, either the email is unknown (→ register flow shown)
-        # or something else went wrong. Surface a clearer error than "field not found".
+        # If password never appears, either the email is unknown (→ register flow shown),
+        # the email failed validation, or something else went wrong. Gather diagnostics.
         register_visible = await page.locator(
             "div.register-card:not(.d-none)"
         ).count()
@@ -105,6 +108,20 @@ async def login(page) -> None:
                 "After email step, Skins showed the register form instead of the "
                 "password field. This usually means the email is not registered. "
                 "Double-check SKINS_EMAIL matches the account you use on skins.nl."
+            )
+        # Scrape any visible validation-error text from the form and include it
+        # in the error — saves a round-trip of downloading the debug artifact.
+        validation_messages = await page.locator(
+            f"{login_form} .invalid-feedback:visible, "
+            f"{login_form} .form-field-feedback:visible"
+        ).all_inner_texts()
+        validation_messages = [m.strip() for m in validation_messages if m.strip()]
+        if validation_messages:
+            raise RuntimeError(
+                "Email step failed with site validation error(s): "
+                + " | ".join(validation_messages)
+                + ". This is often caused by whitespace/newlines in the SKINS_EMAIL "
+                "secret — try removing and re-adding it."
             )
         raise RuntimeError(
             "Password field did not appear within 15s after email step. "
