@@ -71,6 +71,66 @@ async def dismiss_cookie_banner(page) -> None:
             continue
 
 
+async def dismiss_offcanvas(page) -> None:
+    """Close any open Bootstrap offcanvas panel that might be intercepting clicks.
+
+    Skins' site sometimes has a language picker or menu offcanvas open on load;
+    its backdrop div (`.offcanvas-backdrop.show`) sits above the page and
+    swallows pointer events, so any click on the login form silently fails.
+    """
+    # Fast path: check if a backdrop is actually present. If not, skip.
+    backdrop_count = await page.locator(".offcanvas-backdrop.show").count()
+    if backdrop_count == 0:
+        return
+
+    # Try 1: press Escape — standard Bootstrap dismiss
+    try:
+        await page.keyboard.press("Escape")
+        await page.wait_for_selector(
+            ".offcanvas-backdrop.show", state="detached", timeout=3000
+        )
+        return
+    except Exception:
+        pass
+
+    # Try 2: click the backdrop itself (also dismisses by default)
+    try:
+        await page.locator(".offcanvas-backdrop.show").first.click(timeout=2000, force=True)
+        await page.wait_for_selector(
+            ".offcanvas-backdrop.show", state="detached", timeout=3000
+        )
+        return
+    except Exception:
+        pass
+
+    # Try 3: look for a close button inside any visible offcanvas panel
+    try:
+        await page.locator(
+            ".offcanvas.show .btn-close, .offcanvas.show [data-bs-dismiss='offcanvas']"
+        ).first.click(timeout=2000)
+        await page.wait_for_selector(
+            ".offcanvas-backdrop.show", state="detached", timeout=3000
+        )
+        return
+    except Exception:
+        pass
+
+    # Try 4: nuke it from the DOM directly — ugly but reliable as a last resort
+    await page.evaluate(
+        """
+        () => {
+            document.querySelectorAll('.offcanvas-backdrop').forEach(el => el.remove());
+            document.querySelectorAll('.offcanvas.show').forEach(el => {
+                el.classList.remove('show');
+                el.style.display = 'none';
+            });
+            document.body.classList.remove('offcanvas-backdrop-open');
+            document.body.style.overflow = '';
+        }
+        """
+    )
+
+
 async def login(page) -> None:
     """Navigate to login page and submit credentials.
 
@@ -79,27 +139,65 @@ async def login(page) -> None:
     The password field is wrapped in a `.password-field-wrapper.d-none` div
     that only becomes visible after the email step.
     """
-    await page.goto(LOGIN_URL, wait_until="domcontentloaded")
-    await dismiss_cookie_banner(page)
 
-    # The page has 3 email inputs (login form, register form, newsletter footer)
-    # and 2 password inputs (login, register). Scope everything to form.login-form.
+    def log(msg: str) -> None:
+        print(f"[login] {msg}", flush=True)
+
+    async def snapshot(label: str) -> None:
+        """Save a screenshot + HTML with a label. Saved to debug/ dir which is
+        uploaded as a workflow artifact on failure."""
+        try:
+            await page.screenshot(path=str(DEBUG_DIR / f"{label}.png"), full_page=True)
+            (DEBUG_DIR / f"{label}.html").write_text(
+                await page.content(), encoding="utf-8"
+            )
+            log(f"snapshot saved: {label}")
+        except Exception as e:
+            log(f"snapshot failed for {label}: {e}")
+
+    log(f"navigating to {LOGIN_URL}")
+    await page.goto(LOGIN_URL, wait_until="domcontentloaded")
+    log(f"landed on {page.url}")
+    await dismiss_cookie_banner(page)
+    await dismiss_offcanvas(page)
+    await snapshot("01_initial_login_page")
+
     login_form = "form.login-form"
     email_field = f"{login_form} input#loginMail"
     password_field = f"{login_form} input#loginPassword"
     submit_button = f"{login_form} button[type='submit']"
 
-    # Step 1: fill email and click Continue
-    await page.locator(email_field).fill(SKINS_EMAIL, timeout=10000)
-    await page.locator(submit_button).first.click()
+    # Verify login form is actually present before we try to fill
+    count = await page.locator(email_field).count()
+    log(f"found {count} email field(s) matching {email_field}")
+    if count == 0:
+        raise RuntimeError(
+            "Login form email field not found. Skins may have changed the page layout. "
+            "See debug/01_initial_login_page.html"
+        )
 
-    # Step 2: wait for the password field to become visible
-    # (the `d-none` class is removed by JS after the server confirms the email exists)
+    # Step 1: fill email
+    log(f"filling email ({len(SKINS_EMAIL)} chars, first char ord={ord(SKINS_EMAIL[0]) if SKINS_EMAIL else 0})")
+    await page.locator(email_field).fill(SKINS_EMAIL, timeout=10000)
+    # Fire a blur event — some validators only run on blur, not on .fill()
+    await page.locator(email_field).evaluate("el => el.dispatchEvent(new Event('blur', { bubbles: true }))")
+    await page.wait_for_timeout(500)
+    await snapshot("02_after_email_filled")
+
+    # Step 2: click Continue
+    await dismiss_offcanvas(page)  # defensive: in case something opened during fill
+    log("clicking Continue (step 1)")
+    await page.locator(submit_button).first.click()
+    await page.wait_for_timeout(1500)  # give the AJAX call room to fire
+    await snapshot("03_after_first_continue")
+
+    # Step 3: wait for the password field to become visible
     try:
         await page.locator(password_field).wait_for(state="visible", timeout=15000)
+        log("password field now visible")
     except PlaywrightTimeout:
-        # If password never appears, either the email is unknown (→ register flow shown),
-        # the email failed validation, or something else went wrong. Gather diagnostics.
+        await snapshot("04_password_never_appeared")
+        # Gather diagnostics
         register_visible = await page.locator(
             "div.register-card:not(.d-none)"
         ).count()
@@ -109,40 +207,42 @@ async def login(page) -> None:
                 "password field. This usually means the email is not registered. "
                 "Double-check SKINS_EMAIL matches the account you use on skins.nl."
             )
-        # Scrape any visible validation-error text from the form and include it
-        # in the error — saves a round-trip of downloading the debug artifact.
-        validation_messages = await page.locator(
-            f"{login_form} .invalid-feedback:visible, "
-            f"{login_form} .form-field-feedback:visible"
+        # Any visible validation message anywhere on the page?
+        vis_errors = await page.locator(
+            ".invalid-feedback:visible, .form-field-feedback:visible, .alert:visible"
         ).all_inner_texts()
-        validation_messages = [m.strip() for m in validation_messages if m.strip()]
-        if validation_messages:
-            raise RuntimeError(
-                "Email step failed with site validation error(s): "
-                + " | ".join(validation_messages)
-                + ". This is often caused by whitespace/newlines in the SKINS_EMAIL "
-                "secret — try removing and re-adding it."
-            )
+        vis_errors = [m.strip() for m in vis_errors if m.strip()]
+        # Also check the is-invalid class on email field
+        email_classes = await page.locator(email_field).get_attribute("class") or ""
+        # And current URL — did we get redirected somewhere?
+        current_url = page.url
         raise RuntimeError(
-            "Password field did not appear within 15s after email step. "
-            "Skins may have changed the login flow."
+            f"Password field did not appear within 15s after email step. "
+            f"Current URL: {current_url}. Email field classes: '{email_classes}'. "
+            f"Visible errors: {vis_errors or '(none)'}. "
+            f"See debug/ screenshots for visual state."
         )
 
-    # Step 3: fill password and submit
+    # Step 4: fill password and submit
+    log("filling password")
     await page.locator(password_field).fill(SKINS_PASSWORD, timeout=5000)
+    await dismiss_offcanvas(page)  # defensive
+    log("clicking Continue (step 2)")
     await page.locator(submit_button).first.click()
 
-    # Wait for post-login navigation to settle
     try:
         await page.wait_for_load_state("networkidle", timeout=15000)
     except PlaywrightTimeout:
-        pass  # 'networkidle' can hang on modern sites; not fatal.
+        pass
+    log(f"login flow complete, now at {page.url}")
+    await snapshot("05_after_login_complete")
 
 
 async def scrape_products(page) -> list[dict]:
     """Load the archive and extract all product cards."""
     await page.goto(ARCHIVE_URL, wait_until="domcontentloaded")
     await dismiss_cookie_banner(page)
+    await dismiss_offcanvas(page)
     try:
         await page.wait_for_load_state("networkidle", timeout=15000)
     except PlaywrightTimeout:
