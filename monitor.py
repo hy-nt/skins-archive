@@ -69,53 +69,53 @@ async def dismiss_cookie_banner(page) -> None:
 
 
 async def login(page) -> None:
-    """Navigate to login page and submit credentials."""
+    """Navigate to login page and submit credentials.
+
+    Skins uses a progressive two-step login: enter email -> click Continue ->
+    password field becomes visible -> enter password -> click Continue again.
+    The password field is wrapped in a `.password-field-wrapper.d-none` div
+    that only becomes visible after the email step.
+    """
     await page.goto(LOGIN_URL, wait_until="domcontentloaded")
     await dismiss_cookie_banner(page)
 
-    email_selectors = [
-        "input[type='email']",
-        "input[name='email']",
-        "input[name='login']",
-        "#email",
-    ]
-    for sel in email_selectors:
-        try:
-            await page.locator(sel).first.fill(SKINS_EMAIL, timeout=2000)
-            break
-        except Exception:
-            continue
-    else:
-        raise RuntimeError("Could not find email field on login page")
+    # The page has 3 email inputs (login form, register form, newsletter footer)
+    # and 2 password inputs (login, register). Scope everything to form.login-form.
+    login_form = "form.login-form"
+    email_field = f"{login_form} input#loginMail"
+    password_field = f"{login_form} input#loginPassword"
+    submit_button = f"{login_form} button[type='submit']"
 
-    pw_selectors = [
-        "input[type='password']",
-        "input[name='password']",
-        "#password",
-    ]
-    for sel in pw_selectors:
-        try:
-            await page.locator(sel).first.fill(SKINS_PASSWORD, timeout=2000)
-            break
-        except Exception:
-            continue
-    else:
-        raise RuntimeError("Could not find password field on login page")
+    # Step 1: fill email and click Continue
+    await page.locator(email_field).fill(SKINS_EMAIL, timeout=10000)
+    await page.locator(submit_button).first.click()
 
-    submit_selectors = [
-        "button[type='submit']",
-        "input[type='submit']",
-        "button:has-text('Log in')",
-        "button:has-text('Sign in')",
-        "button:has-text('Inloggen')",
-    ]
-    for sel in submit_selectors:
-        try:
-            await page.locator(sel).first.click(timeout=2000)
-            break
-        except Exception:
-            continue
+    # Step 2: wait for the password field to become visible
+    # (the `d-none` class is removed by JS after the server confirms the email exists)
+    try:
+        await page.locator(password_field).wait_for(state="visible", timeout=15000)
+    except PlaywrightTimeout:
+        # If password never appears, either the email is unknown (→ register flow shown)
+        # or something else went wrong. Surface a clearer error than "field not found".
+        register_visible = await page.locator(
+            "div.register-card:not(.d-none)"
+        ).count()
+        if register_visible:
+            raise RuntimeError(
+                "After email step, Skins showed the register form instead of the "
+                "password field. This usually means the email is not registered. "
+                "Double-check SKINS_EMAIL matches the account you use on skins.nl."
+            )
+        raise RuntimeError(
+            "Password field did not appear within 15s after email step. "
+            "Skins may have changed the login flow."
+        )
 
+    # Step 3: fill password and submit
+    await page.locator(password_field).fill(SKINS_PASSWORD, timeout=5000)
+    await page.locator(submit_button).first.click()
+
+    # Wait for post-login navigation to settle
     try:
         await page.wait_for_load_state("networkidle", timeout=15000)
     except PlaywrightTimeout:
