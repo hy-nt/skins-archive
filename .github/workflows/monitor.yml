@@ -72,7 +72,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state.json
+          git add state.json last_heartbeat.txt
           if git diff --staged --quiet; then
             echo "No state changes to commit."
           else
