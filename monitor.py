@@ -41,7 +41,7 @@ MANUAL = os.environ.get("MANUAL", "0") == "1"
 # GitHub Actions runners are headless-only (no display); force headless=True.
 HEADLESS = True
 
-ARCHIVE_URL = "https://www.skins.nl/en/archives/"
+ARCHIVE_URL = "https://www.skins.nl/en/archives/?p=1&order=release-date-ascending"
 LOGIN_URL = "https://www.skins.nl/en/account/login/"
 HEARTBEAT_INTERVAL = timedelta(days=7)
 
