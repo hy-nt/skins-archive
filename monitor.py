@@ -1,9 +1,9 @@
 """
-Skins Archive monitor.
+Skins Archive monitor — GitHub Actions edition.
 
 Logs into skins.nl, scrapes the /en/archives/ page, diffs against the previous
 run's product list, and pings Telegram with any newly appeared items.
-Runs locally on a schedule (e.g. Windows Task Scheduler every 5 minutes).
+Credentials come from GitHub Secrets as environment variables (no .env file).
 """
 
 import asyncio
@@ -15,17 +15,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import httpx
-from dotenv import load_dotenv
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from playwright.async_api import async_playwright
 
 # --- Paths (anchored to the script's own directory, not the CWD). ---
-# Task Scheduler may launch us with an unpredictable working directory, so we
-# anchor state/debug/env files next to this script rather than wherever Windows
-# decides to run us from.
 SCRIPT_DIR = Path(__file__).resolve().parent
-if (SCRIPT_DIR / ".env").exists():
-    load_dotenv(SCRIPT_DIR / ".env")
 
 STATE_FILE = SCRIPT_DIR / "state.json"
 HEARTBEAT_FILE = SCRIPT_DIR / "last_heartbeat.txt"
@@ -35,7 +29,7 @@ DEBUG_DIR = SCRIPT_DIR / "debug"
 # force a fresh login.
 USER_DATA_DIR = SCRIPT_DIR / ".browser-data"
 
-# --- Config from environment (loaded from .env above). ---
+# --- Config from environment (injected from GitHub Secrets by the workflow). ---
 # .strip() on every credential: trailing whitespace/newlines from copy-paste
 # is a classic silent-failure cause.
 SKINS_EMAIL = os.environ["SKINS_EMAIL"].strip()
@@ -44,9 +38,8 @@ TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"].strip()
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"].strip()
 # Manually triggered runs (from a terminal) get an extra confirmation ping.
 MANUAL = os.environ.get("MANUAL", "0") == "1"
-# Headless by default. Set HEADLESS=0 in .env to see an actual Chrome window
-# (useful as a fallback if Skins is detecting the headless browser).
-HEADLESS = os.environ.get("HEADLESS", "1") != "0"
+# GitHub Actions runners are headless-only (no display); force headless=True.
+HEADLESS = True
 
 ARCHIVE_URL = "https://www.skins.nl/en/archives/"
 LOGIN_URL = "https://www.skins.nl/en/account/login/"
