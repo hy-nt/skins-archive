@@ -24,7 +24,8 @@ from playwright.async_api import async_playwright
 # anchor state/debug/env files next to this script rather than wherever Windows
 # decides to run us from.
 SCRIPT_DIR = Path(__file__).resolve().parent
-load_dotenv(SCRIPT_DIR / ".env")
+if (SCRIPT_DIR / ".env").exists():
+    load_dotenv(SCRIPT_DIR / ".env")
 
 STATE_FILE = SCRIPT_DIR / "state.json"
 HEARTBEAT_FILE = SCRIPT_DIR / "last_heartbeat.txt"
