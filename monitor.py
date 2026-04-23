@@ -619,7 +619,7 @@ async def run() -> None:
 
     if first_run:
         await send_telegram_message(
-            f"✅ <b>Skins monitor deployed</b>\n\n"
+            f"✅☁️ <b>Skins monitor deployed</b>\n\n"
             f"Baseline set: {len(products)} products currently in archive.\n"
             f"You'll get a ping here whenever new items appear.\n\n"
             f"<i>{now_str()}</i>"
@@ -651,8 +651,8 @@ async def run() -> None:
     elif MANUAL and not new_products:
         # Give feedback on manual test runs so you know it worked
         await send_telegram_message(
-            f"🔧 <b>Manual run</b>\n\n"
-            f"No new products. Archive has {len(products)} items.\n\n"
+            f"☁️🔧 <b>Manual run</b>\n\n"
+            f"☁️ No new products. Archive has {len(products)} items.\n\n"
             f"<i>{now_str()}</i>"
         )
 
@@ -669,10 +669,10 @@ def main() -> None:
         traceback.print_exc()
         try:
             asyncio.run(
-                send_telegram_message(
-                    f"⚠️ <b>Skins monitor failed</b>\n\n"
-                    f"<pre>{html_escape(str(e))[:700]}</pre>\n\n"
-                    f"<i>{now_str()}</i>"
+                #send_telegram_message(
+                   # f"⚠️ <b>Skins monitor failed</b>\n\n"
+                  #  f"<pre>{html_escape(str(e))[:700]}</pre>\n\n"
+                   # f"<i>{now_str()}</i>"
                 )
             )
         except Exception:
