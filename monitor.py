@@ -437,7 +437,7 @@ async def notify_new(products: list[dict]) -> None:
             price_line = html_escape(p.get("price") or "")
 
         caption = (
-            f"<b>🆕 New in Skins Archive</b>\n\n"
+            f"<b>🆕☁️ New in Skins Archive</b>\n\n"
             f"<b>{name}</b>\n"
             f"{price_line}\n\n"
             f'<a href="{url}">View product →</a>'
@@ -640,7 +640,7 @@ async def run() -> None:
 
     if should_heartbeat and not first_run:
         await send_telegram_message(
-            f"💓 <b>Weekly heartbeat</b>\n\n"
+            f"💓☁️ <b>Weekly heartbeat</b>\n\n"
             f"Monitor is alive. Currently tracking {len(products)} products.\n\n"
             f"<i>{now_str()}</i>"
         )
@@ -670,7 +670,7 @@ def main() -> None:
         try:
             asyncio.run(
                 #send_telegram_message(
-                   # f"⚠️ <b>Skins monitor failed</b>\n\n"
+                   # f"⚠️☁️ <b>Skins monitor failed</b>\n\n"
                   #  f"<pre>{html_escape(str(e))[:700]}</pre>\n\n"
                    # f"<i>{now_str()}</i>"
                 )
