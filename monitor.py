@@ -41,7 +41,7 @@ MANUAL = os.environ.get("MANUAL", "0") == "1"
 # GitHub Actions runners are headless-only (no display); force headless=True.
 HEADLESS = True
 
-ARCHIVE_URL = "https://www.skins.nl/en/archives/"
+ARCHIVE_URL = "https://www.skins.nl/en/archives/?p=1&order=release-date-ascending"
 LOGIN_URL = "https://www.skins.nl/en/account/login/"
 HEARTBEAT_INTERVAL = timedelta(hours=23, minutes=30)  # daily, with a 30-min margin so cron drift doesn't push it to every-other-day
 
@@ -488,7 +488,7 @@ async def notify_new(products: list[dict]) -> None:
             price_line = html_escape(p.get("price") or "")
 
         caption = (
-            f"<b>🆕 New in Skins Archive</b>\n\n"
+            f"<b>🆕🍓 New in Skins Archive</b>\n\n"
             f"<b>{name}</b>\n"
             f"{price_line}\n\n"
             f'<a href="{url}">View product →</a>'
@@ -721,7 +721,7 @@ async def run() -> None:
 
     if first_run:
         await send_telegram_message(
-            f"✅ <b>Skins monitor deployed</b>\n\n"
+            f"✅🍓 <b>Skins monitor deployed</b>\n\n"
             f"Baseline set: {len(products)} products on page 1, "
             f"{total_products if total_products is not None else '?'} total "
             f"across {total_pages if total_pages is not None else '?'} pages.\n"
@@ -752,7 +752,7 @@ async def run() -> None:
                     "sellouts elsewhere in the archive.</i>"
                 )
             await send_telegram_message(
-                f"📊 <b>Archive counts changed</b>\n\n"
+                f"📊🍓 <b>Archive counts changed</b>\n\n"
                 f"Products: {old_total_products} {arrow_p} {total_products} "
                 f"<b>({sign_p})</b>\n"
                 f"Pages: {old_total_pages} {arrow_pg} {total_pages} "
@@ -776,7 +776,7 @@ async def run() -> None:
 
     if should_heartbeat and not first_run:
         await send_telegram_message(
-            f"💓 <b>Daily heartbeat</b>\n\n"
+            f"💓🍓 <b>Daily heartbeat</b>\n\n"
             f"Monitor is alive. Currently tracking {len(products)} products.\n\n"
             f"<i>{now_str()}</i>"
         )
@@ -787,7 +787,7 @@ async def run() -> None:
     elif MANUAL and not new_products and not count_changed:
         # Give feedback on manual test runs so you know it worked
         await send_telegram_message(
-            f"🔧 <b>Manual run</b>\n\n"
+            f"🔧🍓 <b>Manual run</b>\n\n"
             f"No new products and no count changes. "
             f"Archive: {total_products if total_products is not None else '?'} "
             f"products across "
@@ -811,7 +811,7 @@ def main() -> None:
         try:
             asyncio.run(
                 send_telegram_message(
-                    f"⚠️ <b>Skins monitor failed</b>\n\n"
+                    f"⚠️🍓 <b>Skins monitor failed</b>\n\n"
                     f"<pre>{html_escape(str(e))[:700]}</pre>\n\n"
                     f"<i>{now_str()}</i>"
                 )
